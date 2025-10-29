@@ -1,9 +1,13 @@
 using gspro_r10.OpenConnect;
-using InTheHand.Bluetooth;
+//using InTheHand.Bluetooth;
 using LaunchMonitor.Proto;
 using gspro_r10.bluetooth;
 using Microsoft.Extensions.Configuration;
 using System.Text;
+using System.Threading.Tasks;
+using Linux.Bluetooth;
+using Linux.Bluetooth.Extensions;
+
 
 namespace gspro_r10
 {
@@ -17,7 +21,7 @@ namespace gspro_r10
     public IConfigurationSection Configuration { get; }
     public int ReconnectInterval { get; }
     public LaunchMonitorDevice? LaunchMonitor { get; private set; }
-    public BluetoothDevice? Device { get; private set; }
+    public Linux.Bluetooth.Device? Device { get; private set; }
 
     public BluetoothConnection(ConnectionManager connectionManager, IConfigurationSection configuration)
     {
@@ -28,10 +32,22 @@ namespace gspro_r10
 
     }
 
-    private void ConnectToDevice()
+    private async Task ConnectToDevice()
     {
       string deviceName = Configuration["bluetoothDeviceName"] ?? "Approach R10";
-      Device = FindDevice(deviceName);
+      IAdapter1 adapter = (await BlueZManager.GetAdaptersAsync()).FirstOrDefault();
+      IReadOnlyList<Device> devices = await adapter.GetDevicesAsync();
+      foreach (var device in devices)
+      {
+
+        if (await device.GetConnectedAsync() 
+          && deviceName.Equals(await device.GetNameAsync(), StringComparison.CurrentCultureIgnoreCase))
+        {
+          Device = device;
+          break;
+        }
+      }
+
       if (Device == null)
       {
         BluetoothLogger.Error($"Could not find '{deviceName}' in list of paired devices.");
@@ -42,35 +58,34 @@ namespace gspro_r10
 
       do
       {
-        BluetoothLogger.Info($"Connecting to {Device.Name}: {Device.Id}");
-        Device.Gatt.ConnectAsync().Wait();
+        BluetoothLogger.Info($"Connecting to {await Device.GetNameAsync()}: {(await Device.GetUUIDsAsync()).FirstOrDefault()}");
+        await Device.ConnectAsync();
 
-        if (!Device.Gatt.IsConnected)
+        if (!await Device.GetConnectedAsync())
         {
           BluetoothLogger.Info($"Could not connect to bluetooth device. Waiting {ReconnectInterval} seconds before trying again");
           Thread.Sleep(TimeSpan.FromSeconds(ReconnectInterval));
         }
       }
-      while (!Device.Gatt.IsConnected);
-
-      Device.Gatt.AutoConnect = true;
+      while (!await Device.GetConnectedAsync());
 
       BluetoothLogger.Info($"Connected to Launch Monitor");
-      LaunchMonitor = SetupLaunchMonitor(Device);
-      Device.GattServerDisconnected += OnDeviceDisconnected;
+      LaunchMonitor = await SetupLaunchMonitor(Device);
+      Device.Disconnected += OnDeviceDisconnected;
     }
 
-    private void OnDeviceDisconnected(object? sender, EventArgs args)
+    private Task OnDeviceDisconnected(object? sender, EventArgs args)
     {
       BluetoothLogger.Error("Lost bluetooth connection");
       if (Device != null)
-        Device.GattServerDisconnected -= OnDeviceDisconnected;
+        Device.Disconnected -= OnDeviceDisconnected;
       LaunchMonitor?.Dispose();
 
       Task.Run(ConnectToDevice);
+      return Task.CompletedTask;
     }
 
-    private LaunchMonitorDevice? SetupLaunchMonitor(BluetoothDevice device)
+    private async Task<LaunchMonitorDevice?> SetupLaunchMonitor(Linux.Bluetooth.Device device)
     {
       LaunchMonitorDevice lm = new LaunchMonitorDevice(device);
       lm.AutoWake = bool.Parse(Configuration["autoWake"] ?? "false");
@@ -100,7 +115,7 @@ namespace gspro_r10
         );
       };
 
-      if (!lm.Setup())
+      if (!await lm.Setup())
       {
         BluetoothLogger.Error("Failed Device Setup");
         return null;
@@ -118,20 +133,12 @@ namespace gspro_r10
       BluetoothLogger.Info($"Device Setup Complete: ");
       BluetoothLogger.Info($"   Model: {lm.Model}");
       BluetoothLogger.Info($"   Firmware: {lm.Firmware}");
-      BluetoothLogger.Info($"   Bluetooth ID: {lm.Device.Id}");
+      BluetoothLogger.Info($"   Bluetooth ID: {await lm.Device.GetUUIDsAsync()}");
       BluetoothLogger.Info($"   Battery: {lm.Battery}%");
       BluetoothLogger.Info($"   Current State: {lm.CurrentState}");
       BluetoothLogger.Info($"   Tilt: {lm.DeviceTilt}");
 
       return lm;
-    }
-
-    private BluetoothDevice? FindDevice(string deviceName)
-    {
-      foreach (BluetoothDevice pairedDev in Bluetooth.GetPairedDevicesAsync().Result)
-        if (pairedDev.Name == deviceName)
-          return pairedDev;
-      return null;
     }
 
     public static BallData? BallDataFromLaunchMonitorMetrics(BallMetrics? ballMetrics)
@@ -169,7 +176,7 @@ namespace gspro_r10
         if (disposing)
         {
           if (Device != null)
-            Device.GattServerDisconnected -= OnDeviceDisconnected;
+            Device.Disconnected -= OnDeviceDisconnected;
           LaunchMonitor?.Dispose();
         }
 

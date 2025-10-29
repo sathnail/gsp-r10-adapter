@@ -6,7 +6,7 @@ namespace gspro_r10
   {
     public static void Main()
     {
-      
+
       IConfigurationBuilder builder = new ConfigurationBuilder()
         .SetBasePath(Directory.GetCurrentDirectory());
 
@@ -20,7 +20,7 @@ namespace gspro_r10
       }
 
       IConfigurationRoot configuration = builder.Build();
-      
+
       Console.Title = "GSP-R10 Connect";
       BaseLogger.LogMessage("GSP - R10 Bridge starting. Press enter key to close", "Main");
       ConnectionManager manager = new ConnectionManager(configuration);

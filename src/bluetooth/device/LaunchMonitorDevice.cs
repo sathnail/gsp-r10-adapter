@@ -3,8 +3,10 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Google.Protobuf;
-using InTheHand.Bluetooth;
+//using InTheHand.Bluetooth;
 using LaunchMonitor.Proto;
+using Linux.Bluetooth;
+using Linux.Bluetooth.Extensions;
 using static LaunchMonitor.Proto.State.Types;
 using static LaunchMonitor.Proto.SubscribeResponse.Types;
 using static LaunchMonitor.Proto.WakeUpResponse.Types;
@@ -67,42 +69,35 @@ namespace gspro_r10.bluetooth
       public Metrics? Metrics { get; set; }
     }
 
-    public LaunchMonitorDevice(BluetoothDevice device) : base(device)
+    public LaunchMonitorDevice(Linux.Bluetooth.Device device) : base(device)
     {
 
     }
 
-    public override bool Setup()
+    public async override Task<bool> Setup()
     {
       if (DebugLogging)
         BaseLogger.LogDebug("Subscribing to measurement service");
-      GattService measService = Device.Gatt.GetPrimaryServiceAsync(MEASUREMENT_SERVICE_UUID).WaitAsync(TimeSpan.FromSeconds(5)).Result;
-      GattCharacteristic measCharacteristic = measService.GetCharacteristicAsync(MEASUREMENT_CHARACTERISTIC_UUID).WaitAsync(TimeSpan.FromSeconds(5)).Result;
-      if (!measCharacteristic.StartNotificationsAsync().Wait(TimeSpan.FromSeconds(5)))
-      {
-        BluetoothLogger.Error("Error subscribing to measurement characteristic");
-      }
+      IGattService1 measService = await Device.GetServiceAsync(MEASUREMENT_SERVICE_UUID.ToString()).WaitAsync(TimeSpan.FromSeconds(5));
+      GattCharacteristic measCharacteristic = await measService.GetCharacteristicAsync(MEASUREMENT_CHARACTERISTIC_UUID.ToString()).WaitAsync(TimeSpan.FromSeconds(5));
+      measCharacteristic.StartNotifyAsync().Wait(TimeSpan.FromSeconds(5));
+
 
       // Bytes that come after each shot. No idea how to parse these
-      measCharacteristic.CharacteristicValueChanged += (o, e) => {};
+      measCharacteristic.Value += async (o, e) => {};
       if (DebugLogging)
         BaseLogger.LogDebug("Subscribing to control service");
-      GattCharacteristic controlPoint = measService.GetCharacteristicAsync(CONTROL_POINT_CHARACTERISTIC_UUID).WaitAsync(TimeSpan.FromSeconds(5)).Result;
-      if (!controlPoint.StartNotificationsAsync().Wait(TimeSpan.FromSeconds(5)))
-      {
-        BluetoothLogger.Error("Error subscribing to the control characteristic");
-      }
+      GattCharacteristic controlPoint = await measService.GetCharacteristicAsync(CONTROL_POINT_CHARACTERISTIC_UUID.ToString()).WaitAsync(TimeSpan.FromSeconds(5));
+      controlPoint.StartNotifyAsync().Wait(TimeSpan.FromSeconds(5));
+
       // Response to waiting device through controlPointInterface. Unused for now
-      controlPoint.CharacteristicValueChanged += (o, e) => { };
+      controlPoint.Value += async (o, e) => { };
 
       if (DebugLogging)
         BaseLogger.LogDebug("Subscribing to status service");
-      GattCharacteristic statusCharacteristic = measService.GetCharacteristicAsync(STATUS_CHARACTERISTIC_UUID).WaitAsync(TimeSpan.FromSeconds(5)).Result;
-      if (!statusCharacteristic.StartNotificationsAsync().Wait(TimeSpan.FromSeconds(5)))
-      {
-        BluetoothLogger.Error("Error subscribing to the status characteristic");
-      }
-      statusCharacteristic.CharacteristicValueChanged += (o, e) =>
+      GattCharacteristic statusCharacteristic = await measService.GetCharacteristicAsync(STATUS_CHARACTERISTIC_UUID.ToString()).WaitAsync(TimeSpan.FromSeconds(5));
+      statusCharacteristic.StartNotifyAsync().Wait(TimeSpan.FromSeconds(5));
+      statusCharacteristic.Value += async (o, e) =>
       {
         bool isAwake = e.Value[1] == (byte)0;
         bool isReady = e.Value[2] == (byte)0;
@@ -115,7 +110,7 @@ namespace gspro_r10.bluetooth
       };
 
 
-      bool baseSetupSuccess = base.Setup();
+      bool baseSetupSuccess = await base.Setup();
       if (!baseSetupSuccess)
       {
         BluetoothLogger.Error("Error during base device setup");
@@ -283,7 +278,7 @@ namespace gspro_r10.bluetooth
       return null;
     }
 
-    protected override void Dispose(bool disposing)
+    protected override async Task DisposeAsync(bool disposing)
     {
       foreach (var d in ReadinessChanged?.GetInvocationList() ?? Array.Empty<Delegate>())
         ReadinessChanged -= (d as ReadinessChangedEventHandler);
@@ -294,7 +289,7 @@ namespace gspro_r10.bluetooth
       foreach (var d in ShotMetrics?.GetInvocationList() ?? Array.Empty<Delegate>())
         ShotMetrics -= (d as MetricsEventHandler);
 
-      base.Dispose(disposing);
+      await base.DisposeAsync(disposing);
     }
   }
 }
