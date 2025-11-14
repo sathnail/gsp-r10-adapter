@@ -128,7 +128,7 @@ namespace gspro_r10
       float teeDistanceInFeet = float.Parse(Configuration["teeDistanceInFeet"] ?? "7");
       float teeRange = teeDistanceInFeet * FEET_TO_METERS;
 
-      lm.ShotConfig(temperature, humidity, altitude, airDensity, teeRange);
+      await lm.ShotConfig(temperature, humidity, altitude, airDensity, teeRange);
 
       BluetoothLogger.Info($"Device Setup Complete: ");
       BluetoothLogger.Info($"   Model: {lm.Model}");

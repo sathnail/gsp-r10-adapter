@@ -99,8 +99,9 @@ namespace gspro_r10.bluetooth
       Firmware = Encoding.ASCII.GetString(await firmwareCharacteristic.GetValueAsync().WaitAsync(TimeSpan.FromSeconds(5)));
       if (DebugLogging)
         BaseLogger.LogDebug($"Reading model name");
-      GattCharacteristic modelCharacteristic = await deviceInfoService.GetCharacteristicAsync(MODEL_CHARACTERISTIC_UUID.ToString()).WaitAsync(TimeSpan.FromSeconds(5));
-      Model = Encoding.ASCII.GetString(await modelCharacteristic.GetValueAsync().WaitAsync(TimeSpan.FromSeconds(5)));
+      GattCharacteristic modelCharacteristic = await deviceInfoService.GetCharacteristicAsync(MODEL_CHARACTERISTIC_UUID.ToString());
+      var foo = await modelCharacteristic.GetValueAsync();
+      Model = Encoding.ASCII.GetString(await modelCharacteristic.GetValueAsync());
       if (DebugLogging)
         BaseLogger.LogDebug($"Reading battery life");
       IGattService1 batteryService = await Device.GetServiceAsync(BATTERY_SERVICE_UUID.ToString()).WaitAsync(TimeSpan.FromSeconds(5));
