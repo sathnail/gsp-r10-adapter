@@ -80,7 +80,7 @@ namespace gspro_r10.bluetooth
         BaseLogger.LogDebug("Subscribing to measurement service");
       IGattService1 measService = await Device.GetServiceAsync(MEASUREMENT_SERVICE_UUID.ToString()).WaitAsync(TimeSpan.FromSeconds(5));
       GattCharacteristic measCharacteristic = await measService.GetCharacteristicAsync(MEASUREMENT_CHARACTERISTIC_UUID.ToString()).WaitAsync(TimeSpan.FromSeconds(5));
-      measCharacteristic.StartNotifyAsync().Wait(TimeSpan.FromSeconds(5));
+      await measCharacteristic.StartNotifyAsync().WaitAsync(TimeSpan.FromSeconds(5));
 
 
       // Bytes that come after each shot. No idea how to parse these
@@ -88,7 +88,7 @@ namespace gspro_r10.bluetooth
       if (DebugLogging)
         BaseLogger.LogDebug("Subscribing to control service");
       GattCharacteristic controlPoint = await measService.GetCharacteristicAsync(CONTROL_POINT_CHARACTERISTIC_UUID.ToString()).WaitAsync(TimeSpan.FromSeconds(5));
-      controlPoint.StartNotifyAsync().Wait(TimeSpan.FromSeconds(5));
+      await controlPoint.StartNotifyAsync().WaitAsync(TimeSpan.FromSeconds(5));
 
       // Response to waiting device through controlPointInterface. Unused for now
       controlPoint.Value += async (o, e) => { };
@@ -96,7 +96,7 @@ namespace gspro_r10.bluetooth
       if (DebugLogging)
         BaseLogger.LogDebug("Subscribing to status service");
       GattCharacteristic statusCharacteristic = await measService.GetCharacteristicAsync(STATUS_CHARACTERISTIC_UUID.ToString()).WaitAsync(TimeSpan.FromSeconds(5));
-      statusCharacteristic.StartNotifyAsync().Wait(TimeSpan.FromSeconds(5));
+      await statusCharacteristic.StartNotifyAsync().WaitAsync(TimeSpan.FromSeconds(5));
       statusCharacteristic.Value += async (o, e) =>
       {
         bool isAwake = e.Value[1] == (byte)0;
@@ -105,7 +105,7 @@ namespace gspro_r10.bluetooth
         // the following is unused in favor of the status change notifications and wake control provided by the protobuf service
         // if (!isAwake)
         // {
-        //   controlPoint.WriteValueWithResponseAsync(new byte[] { 0x00 }).Wait();
+        //   await controlPoint.WriteValueAsync(new byte[] { 0x00 }, new Dictionary<string, object>());
         // }
       };
 
@@ -116,20 +116,25 @@ namespace gspro_r10.bluetooth
         BluetoothLogger.Error("Error during base device setup");
         return false;
       }
+      await Task.Delay(TimeSpan.FromSeconds(5));
 
+      var wakeResult = await Task.Run(WakeDevice);
+      var currnetStateResult = await Task.Run(StatusRequest);
+      var deviceTiltResult = await Task.Run(GetDeviceTilt);
+      var subscribeToAlertsResult = await Task.Run(SubscribeToAlerts);
 
-      WakeDevice();
-      CurrentState = StatusRequest() ?? StateType.Error;
-      DeviceTilt = GetDeviceTilt();
-      SubscribeToAlerts().First();
+      // WakeDevice();
+      // CurrentState = StatusRequest() ?? StateType.Error;
+      // DeviceTilt = GetDeviceTilt();
+      // SubscribeToAlerts().FirstOrDefault();
 
       if (CalibrateTiltOnConnect)
-        StartTiltCalibration();
+        await StartTiltCalibration();
 
       return true;
     }
 
-    public override void HandleProtobufRequest(IMessage request)
+    public override async Task HandleProtobufRequest(IMessage request)
     {
       if (request is WrapperProto WrapperProtoRequest)
       {
@@ -142,7 +147,7 @@ namespace gspro_r10.bluetooth
             if (AutoWake)
             {
               BluetoothLogger.Info("Device asleep. Sending wakeup call");
-              WakeDevice();
+              await WakeDevice();
             }
             else
             {
@@ -168,14 +173,14 @@ namespace gspro_r10.bluetooth
         }
         if (notification.TiltCalibration != null)
         {
-          DeviceTilt = GetDeviceTilt();
+          DeviceTilt = await GetDeviceTilt();
         }
       }
     }
 
-    public Tilt? GetDeviceTilt()
+    public async Task<Tilt?> GetDeviceTilt()
     {
-      IMessage? resp = SendProtobufRequest(
+      IMessage? resp = await SendProtobufRequest(
         new WrapperProto() { Service = new LaunchMonitorService() { TiltRequest = new TiltRequest() } }
       );
 
@@ -185,11 +190,10 @@ namespace gspro_r10.bluetooth
       return null;
     }
 
-    public ResponseStatus? WakeDevice()
+    public async Task<ResponseStatus?> WakeDevice()
     {
-      IMessage? resp = SendProtobufRequest(
-        new WrapperProto() { Service = new LaunchMonitorService() { WakeUpRequest = new WakeUpRequest() } }
-      );
+      var message = new WrapperProto() { Service = new LaunchMonitorService() { WakeUpRequest = new WakeUpRequest() } };
+      IMessage? resp = await SendProtobufRequest(message);
 
       if (resp is WrapperProto WrapperProtoResponse)
         return WrapperProtoResponse.Service.WakeUpResponse.Status;
@@ -197,9 +201,9 @@ namespace gspro_r10.bluetooth
       return null;
     }
 
-    public StateType? StatusRequest()
+    public async Task<StateType?> StatusRequest()
     {
-      IMessage? resp = SendProtobufRequest(
+      IMessage? resp = await SendProtobufRequest(
         new WrapperProto() { Service = new LaunchMonitorService() { StatusRequest = new StatusRequest() } }
       );
 
@@ -209,9 +213,9 @@ namespace gspro_r10.bluetooth
       return null;
     }
 
-    public List<AlertStatusMessage> SubscribeToAlerts()
+    public async Task<List<AlertStatusMessage>> SubscribeToAlerts()
     {
-      IMessage? resp = SendProtobufRequest(
+      IMessage? resp = await SendProtobufRequest(
         new WrapperProto()
         {
           Event = new EventSharing()
@@ -231,9 +235,9 @@ namespace gspro_r10.bluetooth
 
     }
 
-    public bool ShotConfig(float temperature, float humidity, float altitude, float airDensity, float teeRange)
+    public async Task<bool> ShotConfig(float temperature, float humidity, float altitude, float airDensity, float teeRange)
     {
-      IMessage? resp = SendProtobufRequest(new WrapperProto()
+      IMessage? resp = await SendProtobufRequest(new WrapperProto()
       {
         Service = new LaunchMonitorService()
         {
@@ -254,9 +258,9 @@ namespace gspro_r10.bluetooth
       return false;
     }
 
-    public ResetTiltCalibrationResponse.Types.Status? ResetTiltCalibrartion(bool shouldReset = true)
+    public async Task<ResetTiltCalibrationResponse.Types.Status?> ResetTiltCalibrartion(bool shouldReset = true)
     {
-      IMessage? resp = SendProtobufRequest(
+      IMessage? resp = await SendProtobufRequest(
         new WrapperProto() { Service = new LaunchMonitorService() { ResetTiltCalRequest = new ResetTiltCalibrationRequest() { ShouldReset = shouldReset } } }
       );
 
@@ -266,9 +270,9 @@ namespace gspro_r10.bluetooth
       return null;
     }
 
-    public StartTiltCalibrationResponse.Types.CalibrationStatus? StartTiltCalibration(bool shouldReset = true)
+    public async Task<StartTiltCalibrationResponse.Types.CalibrationStatus?> StartTiltCalibration(bool shouldReset = true)
     {
-      IMessage? resp = SendProtobufRequest(
+      IMessage? resp = await SendProtobufRequest(
         new WrapperProto() { Service = new LaunchMonitorService() { StartTiltCalRequest = new StartTiltCalibrationRequest() } }
       );
 

@@ -106,7 +106,7 @@ namespace gspro_r10.bluetooth
       IGattService1 batteryService = await Device.GetServiceAsync(BATTERY_SERVICE_UUID.ToString()).WaitAsync(TimeSpan.FromSeconds(5));
       GattCharacteristic batteryCharacteristic = await batteryService.GetCharacteristicAsync(BATTERY_CHARACTERISTIC_UUID.ToString()).WaitAsync(TimeSpan.FromSeconds(5));
       batteryCharacteristic.Value += async (o, e) => Battery = e.Value[0];
-      batteryCharacteristic.StartNotifyAsync().Wait(TimeSpan.FromSeconds(5));
+      await batteryCharacteristic.StartNotifyAsync().WaitAsync(TimeSpan.FromSeconds(5));
       if (DebugLogging)
         BaseLogger.LogDebug($"Setting up device interface service");
       IGattService1 deviceInterfaceService = await Device.GetServiceAsync(DEVICE_INTERFACE_SERVICE.ToString()).WaitAsync(TimeSpan.FromSeconds(5));
@@ -116,9 +116,9 @@ namespace gspro_r10.bluetooth
       if (DebugLogging)
         BaseLogger.LogDebug($"Getting reader");
       GattCharacteristic deviceInterfaceNotifier = await deviceInterfaceService.GetCharacteristicAsync(DEVICE_INTERFACE_NOTIFIER.ToString()).WaitAsync(TimeSpan.FromSeconds(5));
-      deviceInterfaceNotifier.StartNotifyAsync().Wait(TimeSpan.FromSeconds(5));
+      await deviceInterfaceNotifier.StartNotifyAsync();
       deviceInterfaceNotifier.Value += async (o, e) => ReadBytes(e.Value);
-      bool handshakeSuccess = PerformHandShake();
+      bool handshakeSuccess = await PerformHandShake();
       if (!handshakeSuccess)
         Console.WriteLine("Failed handshake. Something went wrong in setup");
       return handshakeSuccess;
@@ -176,25 +176,29 @@ namespace gspro_r10.bluetooth
       }
     }
 
-    private void WriterThread()
+    private async Task WriterThread()
     {
       while (!mCancellationToken.IsCancellationRequested)
         if (mWriterQueue.Count > 0)
-          mGattWriter?.WriteValueAsync(mWriterQueue.Dequeue(), new Dictionary<string, object>());
+          await mGattWriter?.WriteValueAsync(mWriterQueue.Dequeue(), new Dictionary<string, object>());
         else
-          mWriterSignal.WaitOne(5000);
+        {
+            await Task.Delay(TimeSpan.FromSeconds(5));
+            mWriterSignal.WaitOne(5000);
+
+        }
     }
 
-    private void MsgProcessingThread()
+    private async Task MsgProcessingThread()
     {
       while (!mCancellationToken.IsCancellationRequested)
         if (mMsgProcessQueue.Count > 0)
-          ProcessMessage(mMsgProcessQueue.Dequeue());
+          await ProcessMessage(mMsgProcessQueue.Dequeue());
         else
           mMsgProcessSignal.WaitOne(5000);
     }
 
-    public bool  PerformHandShake()
+    public async Task<bool>  PerformHandShake()
     {
       if (DebugLogging)
         BaseLogger.LogDebug($"Starting handshake");
@@ -202,7 +206,13 @@ namespace gspro_r10.bluetooth
       mHandshakeCompleteResetEvent.Reset();
       mHeader = 0x00;
       SendBytes("000000000000000000010000");
-      return mHandshakeCompleteResetEvent.Wait(TimeSpan.FromSeconds(10));
+      var handshakeTask = Task.Run(() =>
+      {
+          var result = mHandshakeCompleteResetEvent.Wait(TimeSpan.FromSeconds(10));
+          return result;
+      });
+      var handshakeResult = await handshakeTask;
+      return handshakeResult;
     }
 
     private void ContinueHandShake(IEnumerable<byte> msg)
@@ -219,8 +229,9 @@ namespace gspro_r10.bluetooth
       }
     }
 
-    private void ProcessMessage(byte[] frame)
+    private async Task ProcessMessage(byte[] frame)
     {
+      var isMessageParsed = true;
       if (BitConverter.ToUInt16(frame.SkipLast(2).Checksum()) != BitConverter.ToUInt16(frame.TakeLast(2).ToArray()))
       {
         Console.WriteLine("CRC ERROR");
@@ -256,25 +267,33 @@ namespace gspro_r10.bluetooth
       {
         ackBody.AddRange(msg[2..4]);
         ackBody.AddRange("00000000000000".ToByteArray());
-        Task.Run(() =>
+        await Task.Run(() =>
         {
           var request = WrapperProto.Parser.ParseFrom(msg.Skip(16).ToArray());
           MessageRecieved?.Invoke(this, new MessageEventArgs() { Message = request });
           HandleProtobufRequest(request);
         });
       }
+      else if (!hex.StartsWith("9313"))
+      {
+        isMessageParsed = false;
+          // message not parsed
+      }
 
-      AcknowledgeMessage(msg, ackBody);
+      if (isMessageParsed)
+      {
+          AcknowledgeMessage(msg, ackBody);
+      }
     }
 
-    public abstract void HandleProtobufRequest(IMessage request);
+    public abstract Task HandleProtobufRequest(IMessage request);
 
     private void AcknowledgeMessage(IEnumerable<byte> msg, IEnumerable<byte> respBody)
     {
       WriteMessage("8813".ToByteArray().Concat(msg.Take(2)).Concat(respBody).ToArray());
     }
 
-    public IMessage? SendProtobufRequest(IMessage proto)
+    public async Task<IMessage?> SendProtobufRequest(IMessage proto)
     {
 
       mProtoResponseResetEvent.Reset();
@@ -292,7 +311,14 @@ namespace gspro_r10.bluetooth
 
       WriteMessage(fullMsg);
       MessageSent?.Invoke(this, new MessageEventArgs() { Message = proto });
-      if (mProtoResponseResetEvent.Wait(5000))
+      var result = await Task.Run(async () => 
+      {
+        //await Task.Delay(TimeSpan.FromSeconds(5));
+        var returnResult = mProtoResponseResetEvent.Wait(10000);
+        return returnResult;
+      });
+      //mProtoResponseResetEvent.Wait();
+      if (result)
       {
         mProtoRequestCounter++;
         return mLastProtoReceived;
