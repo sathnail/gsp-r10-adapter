@@ -133,7 +133,7 @@ namespace gspro_r10
       BluetoothLogger.Info($"Device Setup Complete: ");
       BluetoothLogger.Info($"   Model: {lm.Model}");
       BluetoothLogger.Info($"   Firmware: {lm.Firmware}");
-      BluetoothLogger.Info($"   Bluetooth ID: {await lm.Device.GetUUIDsAsync()}");
+      BluetoothLogger.Info($"   Bluetooth ID: {await lm.Device.GetAddressAsync()}");
       BluetoothLogger.Info($"   Battery: {lm.Battery}%");
       BluetoothLogger.Info($"   Current State: {lm.CurrentState}");
       BluetoothLogger.Info($"   Tilt: {lm.DeviceTilt}");

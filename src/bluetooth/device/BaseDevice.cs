@@ -79,9 +79,9 @@ namespace gspro_r10.bluetooth
       Device = device;
 
       mCancellationToken = new CancellationTokenSource();
-      mWriterTask = Task.Run(WriterThread, mCancellationToken.Token);
-      mReaderTask = Task.Run(ReaderThread, mCancellationToken.Token);
-      mMsgProcessingTask = Task.Run(MsgProcessingThread, mCancellationToken.Token);
+      mWriterTask = Task.Run(WriterThreadAsync, mCancellationToken.Token);
+      mReaderTask = Task.Run(ReaderThreadAsync, mCancellationToken.Token);
+      mMsgProcessingTask = Task.Run(MsgProcessingThreadAsync, mCancellationToken.Token);
     }
 
     public virtual async Task<bool> Setup()
@@ -92,16 +92,15 @@ namespace gspro_r10.bluetooth
       if (DebugLogging)
         BaseLogger.LogDebug($"Reading serial number");
       GattCharacteristic serialCharacteristic = await deviceInfoService.GetCharacteristicAsync(SERIAL_NUMBER_CHARACTERISTIC_UUID.ToString()).WaitAsync(TimeSpan.FromSeconds(5));
-      Serial = Encoding.ASCII.GetString(await serialCharacteristic.GetValueAsync().WaitAsync(TimeSpan.FromSeconds(5)));
+      Serial = Encoding.ASCII.GetString(await serialCharacteristic.ReadValueAsync(new Dictionary<string, object>()).WaitAsync(TimeSpan.FromSeconds(5)));
       if (DebugLogging)
         BaseLogger.LogDebug($"Reading firmware version");
       GattCharacteristic firmwareCharacteristic = await deviceInfoService.GetCharacteristicAsync(FIRMWARE_CHARACTERISTIC_UUID.ToString()).WaitAsync(TimeSpan.FromSeconds(5));
-      Firmware = Encoding.ASCII.GetString(await firmwareCharacteristic.GetValueAsync().WaitAsync(TimeSpan.FromSeconds(5)));
+      Firmware = Encoding.ASCII.GetString(await firmwareCharacteristic.ReadValueAsync(new Dictionary<string, object>()).WaitAsync(TimeSpan.FromSeconds(5)));
       if (DebugLogging)
         BaseLogger.LogDebug($"Reading model name");
       GattCharacteristic modelCharacteristic = await deviceInfoService.GetCharacteristicAsync(MODEL_CHARACTERISTIC_UUID.ToString());
-      var foo = await modelCharacteristic.GetValueAsync();
-      Model = Encoding.ASCII.GetString(await modelCharacteristic.GetValueAsync());
+      Model = Encoding.ASCII.GetString(await modelCharacteristic.ReadValueAsync(new Dictionary<string, object>()));
       if (DebugLogging)
         BaseLogger.LogDebug($"Reading battery life");
       IGattService1 batteryService = await Device.GetServiceAsync(BATTERY_SERVICE_UUID.ToString()).WaitAsync(TimeSpan.FromSeconds(5));
@@ -125,7 +124,7 @@ namespace gspro_r10.bluetooth
       return handshakeSuccess;
     }
 
-    private void ReaderThread()
+    private async Task ReaderThreadAsync()
     {
       List<byte> currentMessage = new List<byte>();
 
@@ -172,31 +171,33 @@ namespace gspro_r10.bluetooth
         }
         else
         {
-          mReaderSignal.WaitOne(5000);
+          //mReaderSignal.WaitOne(5000);
+          await Task.Run(() => mReaderSignal.WaitOne(5000));
+
         }
       }
     }
 
-    private async Task WriterThread()
+    private async Task WriterThreadAsync()
     {
       while (!mCancellationToken.IsCancellationRequested)
         if (mWriterQueue.Count > 0)
           await mGattWriter?.WriteValueAsync(mWriterQueue.Dequeue(), new Dictionary<string, object>());
         else
         {
-            await Task.Delay(TimeSpan.FromSeconds(5));
-            mWriterSignal.WaitOne(5000);
+            //await Task.Delay(TimeSpan.FromSeconds(5));
+            await Task.Run(() => mWriterSignal.WaitOne(5000));
 
         }
     }
 
-    private async Task MsgProcessingThread()
+    private async Task MsgProcessingThreadAsync()
     {
       while (!mCancellationToken.IsCancellationRequested)
         if (mMsgProcessQueue.Count > 0)
           await ProcessMessage(mMsgProcessQueue.Dequeue());
         else
-          mMsgProcessSignal.WaitOne(5000);
+          await Task.Run(() => mMsgProcessSignal.WaitOne(5000));
     }
 
     public async Task<bool>  PerformHandShake()
