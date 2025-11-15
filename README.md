@@ -41,5 +41,5 @@ In order to use the putting integration you must
 
 ### From Source
 
-- Install a dotnet 7 sdk if you don't have one already
-- `dotnet run` from project directory
+- Install a dotnet 8 sdk if you don't have one already
+- `dotnet run gspro-r10.csproj` from project directory
