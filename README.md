@@ -43,3 +43,11 @@ In order to use the putting integration you must
 
 - Install a dotnet 8 sdk if you don't have one already
 - `dotnet run gspro-r10.csproj` from project directory
+
+## Fork Specific Info
+
+- this runs on linux using a different bluetooth library than the original author used!
+- i'm going to try and test this using a raspberry pi 5 to see if its works on arm64
+- i may include something like cloudflare tunnels and sunshine/moonlight configs for remote play
+- may do some cloud things with IaC and provisioning gpu cloud instances if i'm feeling froggy.. probably not
+- thanks to original author! i never would have gotten this going without all the bluetooth UUIDs and base code!
