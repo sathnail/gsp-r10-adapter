@@ -1,12 +1,6 @@
 using Google.Protobuf;
-using System.Linq;
 using System.Text;
 using LaunchMonitor.Proto;
-using System.Threading.Tasks;
-using System.Threading;
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using Linux.Bluetooth;
 using Linux.Bluetooth.Extensions;
 
@@ -171,9 +165,7 @@ namespace gspro_r10.bluetooth
         }
         else
         {
-          //mReaderSignal.WaitOne(5000);
           await Task.Run(() => mReaderSignal.WaitOne(5000));
-
         }
       }
     }
@@ -185,9 +177,7 @@ namespace gspro_r10.bluetooth
           await mGattWriter?.WriteValueAsync(mWriterQueue.Dequeue(), new Dictionary<string, object>());
         else
         {
-            //await Task.Delay(TimeSpan.FromSeconds(5));
             await Task.Run(() => mWriterSignal.WaitOne(5000));
-
         }
     }
 
@@ -208,13 +198,7 @@ namespace gspro_r10.bluetooth
       mHandshakeCompleteResetEvent.Reset();
       mHeader = 0x00;
       SendBytes("000000000000000000010000");
-      var handshakeTask = Task.Run(() =>
-      {
-          var result = mHandshakeCompleteResetEvent.Wait(TimeSpan.FromSeconds(10));
-          return result;
-      });
-      var handshakeResult = await handshakeTask;
-      return handshakeResult;
+      return await Task.Run( () => mHandshakeCompleteResetEvent.Wait(TimeSpan.FromSeconds(10)));
     }
 
     private void ContinueHandShake(IEnumerable<byte> msg)
